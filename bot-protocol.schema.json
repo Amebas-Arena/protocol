@@ -1,0 +1,2491 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amebas-arena:bot-protocol",
+  "title": "AmebasBotProtocol",
+  "description": "Protocolo do bot de sala do Amebas Arena: WebSocket JSON em /v1/rooms/{roomId}/bot. Gerado de packages/protocol (pnpm --filter @amebas/bot-protocol generate); não edite à mão.",
+  "x-amebas-bot": {
+    "path": "/v1/rooms/{roomId}/bot",
+    "auth": {
+      "description": "A chave da comunidade com o escopo rooms:control (amb_...), no cabeçalho Authorization: Bearer <chave> ou, de navegador e do WebSocket do Node (que não mandam cabeçalho), na primeira mensagem { \"type\": \"auth\", \"key\": \"<chave>\" }. Nunca na URL. O token de sessão do jogo vale no lugar da chave (o painel do dono). Aceita, a API responde ready.",
+      "timeoutMs": 10000
+    },
+    "rateLimit": {
+      "burst": 20,
+      "perSecond": 5,
+      "description": "Balde por conexão; comando além dele volta como result com ok false e code rate_limited."
+    },
+    "closeCodes": {
+      "unauthorized": {
+        "code": 4001,
+        "description": "auth recusada ou não chegou no prazo (antes vem um error com o code)"
+      },
+      "invalidRoom": {
+        "code": 4004,
+        "description": "id de sala inválido"
+      }
+    },
+    "commandRef": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Campo opcional de todo comando; volta no result do comando pra casar pedido e resposta."
+    },
+    "commands": [
+      "chat",
+      "kick",
+      "ban",
+      "mute",
+      "move",
+      "team",
+      "captain",
+      "admin",
+      "start",
+      "stop",
+      "finish",
+      "pause",
+      "restart",
+      "auto",
+      "shuffle",
+      "pick",
+      "confirm",
+      "knockout",
+      "bot",
+      "bots",
+      "lock",
+      "config"
+    ],
+    "events": [
+      "room.live",
+      "room.off",
+      "room.config",
+      "player.joined",
+      "player.left",
+      "chat.message",
+      "match.started",
+      "match.event",
+      "match.ended",
+      "rule.fired",
+      "script.log",
+      "script.stopped"
+    ]
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ClientMessage"
+    },
+    {
+      "$ref": "#/$defs/ServerMessage"
+    }
+  ],
+  "$defs": {
+    "AdminCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "admin"
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "admin": {
+          "type": "boolean"
+        }
+      },
+      "required": ["type", "playerId", "admin"]
+    },
+    "AuthMessage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "auth"
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": ["type", "key"]
+    },
+    "AutoCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "auto"
+        }
+      },
+      "required": ["type"]
+    },
+    "BanCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ban"
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "scope": {
+          "default": "room",
+          "type": "string",
+          "enum": ["room", "community"]
+        }
+      },
+      "required": ["type", "playerId"]
+    },
+    "BotCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "bot"
+        },
+        "team": {
+          "type": "string",
+          "enum": ["a", "b"]
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 1
+            },
+            {
+              "type": "number",
+              "const": -1
+            }
+          ]
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31
+        }
+      },
+      "required": ["type", "team", "delta"]
+    },
+    "BotsCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "bots"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["fill", "clear"]
+        }
+      },
+      "required": ["type", "action"]
+    },
+    "CaptainCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "captain"
+        },
+        "team": {
+          "type": "string",
+          "enum": ["a", "b"]
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        }
+      },
+      "required": ["type", "team", "playerId"]
+    },
+    "ChatCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "chat"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": ["type", "text"]
+    },
+    "ChatMessageEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "chat.message"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "player": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlayerRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "staff", "player"]
+        }
+      },
+      "required": ["type", "roomId", "at", "player", "text"],
+      "additionalProperties": false
+    },
+    "ClientMessage": {
+      "description": "O que o bot manda: a auth (primeira mensagem) e, depois dela, comandos. Todo comando aceita um campo ref (texto até 64), que volta no result dele (x-amebas-bot.commandRef).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthMessage"
+        },
+        {
+          "$ref": "#/$defs/RoomCommand"
+        }
+      ]
+    },
+    "ConfigCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "config"
+        },
+        "config": {
+          "$ref": "#/$defs/HostedRoomConfigInput"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["type", "config"]
+    },
+    "ConfirmCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "confirm"
+        }
+      },
+      "required": ["type"]
+    },
+    "ErrorMessage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "error"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": ["type", "code", "message"],
+      "additionalProperties": false
+    },
+    "FinishCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "finish"
+        }
+      },
+      "required": ["type"]
+    },
+    "HostBot": {
+      "type": "object",
+      "properties": {
+        "welcome": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": ["text"],
+          "additionalProperties": false
+        },
+        "notices": {
+          "type": "object",
+          "properties": {
+            "everyMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            },
+            "messages": {
+              "minItems": 1,
+              "maxItems": 5,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          },
+          "required": ["everyMinutes", "messages"],
+          "additionalProperties": false
+        },
+        "chatRules": {
+          "type": "object",
+          "properties": {
+            "words": {
+              "minItems": 1,
+              "maxItems": 50,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 32
+              }
+            },
+            "action": {
+              "type": "string",
+              "enum": ["mute", "kick"]
+            }
+          },
+          "required": ["words", "action"],
+          "additionalProperties": false
+        },
+        "afk": {
+          "type": "object",
+          "properties": {
+            "seconds": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 600
+            },
+            "action": {
+              "type": "string",
+              "enum": ["spectate", "kick"]
+            }
+          },
+          "required": ["seconds", "action"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "HostedRoom": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "communityId": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{1,30})[a-z0-9]$",
+          "description": "Slug da comunidade, definido na criação e imutável depois dela.",
+          "example": "amebas"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{2,47}[a-z0-9]$",
+          "description": "Código fixo da sala: o id da comunidade, um hífen e um apelido de 1 a 16 letras minúsculas, números e hífen.",
+          "example": "amebas-noobs"
+        },
+        "name": {
+          "type": "string"
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "hasPassword": {
+          "type": "boolean"
+        },
+        "maxPlayers": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 64
+        },
+        "config": {
+          "$ref": "#/$defs/HostedRoomConfig"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["simple", "full"]
+        },
+        "paidUntil": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alwaysOn": {
+          "type": "boolean"
+        },
+        "desired": {
+          "type": "string",
+          "enum": ["on", "off"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["off", "starting", "live"]
+        },
+        "live": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": ["string", "null"]
+                },
+                "players": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["code", "address", "players"],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hostBot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostBot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "teams": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomTeams"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rules": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomRules"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "script": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomScript"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "updatedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "communityId",
+        "code",
+        "name",
+        "isPublic",
+        "hasPassword",
+        "maxPlayers",
+        "config",
+        "plan",
+        "paidUntil",
+        "alwaysOn",
+        "desired",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "HostedRoomConfig": {
+      "type": "object",
+      "properties": {
+        "preset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["football", "penalty", "volleyball", "ctf", "dodgeball", "tenman", "race"]
+        },
+        "modeParams": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 32
+              }
+            ]
+          }
+        },
+        "format": {
+          "type": "string",
+          "enum": ["open", "queue", "everyone", "rounds", "manual", "knockout"]
+        },
+        "formatParams": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 32
+              }
+            ]
+          }
+        },
+        "map": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "communityMap": {
+          "type": "string",
+          "pattern": "^(?:@[a-z0-9-]{1,40}|(?:[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\\/)?[a-z0-9_.-]{1,32})$",
+          "example": "meu-campo"
+        },
+        "time": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "goals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        },
+        "teamSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 11
+        },
+        "keepers": {
+          "type": "boolean"
+        },
+        "goalkeeper": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "ball": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "gameplay": {
+          "type": "object",
+          "properties": {
+            "maxSpeed": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "accelTime": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 120
+            },
+            "turning": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "aimAssist": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "controlSpin": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "ballMass": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballFriction": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballAirFriction": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballBounce": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballSize": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "kickPower": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "gravity": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "playerSize": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "HostedRoomConfigInput": {
+      "type": "object",
+      "properties": {
+        "preset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["football", "penalty", "volleyball", "ctf", "dodgeball", "tenman", "race"]
+        },
+        "modeParams": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 32
+              }
+            ]
+          }
+        },
+        "format": {
+          "type": "string",
+          "enum": ["open", "queue", "everyone", "rounds", "manual", "knockout"]
+        },
+        "formatParams": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 32
+              }
+            ]
+          }
+        },
+        "map": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "communityMap": {
+          "type": "string",
+          "pattern": "^(?:@[a-z0-9-]{1,40}|(?:[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\\/)?[a-z0-9_.-]{1,32})$",
+          "example": "meu-campo"
+        },
+        "time": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "goals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        },
+        "teamSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 11
+        },
+        "keepers": {
+          "type": "boolean"
+        },
+        "goalkeeper": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "ball": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "gameplay": {
+          "type": "object",
+          "properties": {
+            "maxSpeed": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "accelTime": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 120
+            },
+            "turning": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "aimAssist": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "controlSpin": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "ballMass": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballFriction": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballAirFriction": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballBounce": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "ballSize": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "kickPower": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "gravity": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            },
+            "playerSize": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 1.5
+            }
+          }
+        }
+      }
+    },
+    "KickCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "kick"
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        }
+      },
+      "required": ["type", "playerId"]
+    },
+    "KnockoutCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "knockout"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["lock", "reset"]
+        }
+      },
+      "required": ["type", "action"]
+    },
+    "LivePlayer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "nick": {
+          "type": "string"
+        },
+        "accountId": {
+          "type": ["string", "null"]
+        },
+        "place": {
+          "type": "string",
+          "enum": ["a", "b", "stands"]
+        },
+        "admin": {
+          "type": "boolean"
+        },
+        "connection": {
+          "type": "string",
+          "enum": ["ok", "reconnecting", "afk"]
+        }
+      },
+      "required": ["id", "nick", "accountId", "place", "admin", "connection"],
+      "additionalProperties": false
+    },
+    "LiveRoom": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "address": {
+          "type": ["string", "null"]
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["stopped", "playing", "paused"]
+        },
+        "score": {
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "b": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["a", "b"],
+          "additionalProperties": false
+        },
+        "mode": {
+          "type": "string"
+        },
+        "map": {
+          "type": "string"
+        },
+        "players": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LivePlayer"
+          }
+        }
+      },
+      "required": ["code", "address", "phase", "score", "mode", "map", "players"],
+      "additionalProperties": false
+    },
+    "LockCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "lock"
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      },
+      "required": ["type", "locked"]
+    },
+    "Match": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "room": {
+          "type": "string"
+        },
+        "hostedRoomId": {
+          "type": ["string", "null"]
+        },
+        "mode": {
+          "type": "string"
+        },
+        "format": {
+          "type": ["string", "null"]
+        },
+        "map": {
+          "type": ["string", "null"]
+        },
+        "scoreA": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "scoreB": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "playedAt": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "rules": {
+          "type": "boolean"
+        },
+        "players": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "accountId": {
+                "type": ["string", "null"]
+              },
+              "nick": {
+                "type": "string"
+              },
+              "team": {
+                "type": "string",
+                "enum": ["a", "b"]
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["win", "loss", "draw"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "stats": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "number"
+                }
+              }
+            },
+            "required": ["accountId", "nick", "team", "outcome", "stats"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "id",
+        "room",
+        "hostedRoomId",
+        "mode",
+        "format",
+        "map",
+        "scoreA",
+        "scoreB",
+        "durationSeconds",
+        "playedAt",
+        "players"
+      ],
+      "additionalProperties": false
+    },
+    "MatchEndedEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "match.ended"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "match": {
+          "$ref": "#/$defs/Match"
+        }
+      },
+      "required": ["type", "roomId", "at", "match"],
+      "additionalProperties": false
+    },
+    "MatchEventEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "match.event"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "Goal",
+            "Save",
+            "Post",
+            "PenaltyKick",
+            "Out",
+            "Point",
+            "Eliminated",
+            "Revived",
+            "Frozen",
+            "Unfrozen",
+            "FlagTaken",
+            "FlagCaptured",
+            "FlagDropped",
+            "Block",
+            "Fault",
+            "Foul",
+            "Card",
+            "LapCompleted",
+            "Finished",
+            "RoundStart",
+            "RoundEnd"
+          ]
+        },
+        "player": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlayerRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "team": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["a", "b"]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["type", "roomId", "at", "event", "player", "team"],
+      "additionalProperties": false
+    },
+    "MatchStartedEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "match.started"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "mode": {
+          "type": "string"
+        },
+        "map": {
+          "type": "string"
+        }
+      },
+      "required": ["type", "roomId", "at", "mode", "map"],
+      "additionalProperties": false
+    },
+    "MoveCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "move"
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "to": {
+          "type": "string",
+          "enum": ["a", "b", "stands"]
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31
+        }
+      },
+      "required": ["type", "playerId", "to"]
+    },
+    "MuteCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "mute"
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "muted": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": ["type", "playerId"]
+    },
+    "PauseCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pause"
+        },
+        "paused": {
+          "type": "boolean"
+        }
+      },
+      "required": ["type"]
+    },
+    "PickCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pick"
+        },
+        "playerId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "keyword": {
+          "type": "string",
+          "enum": ["top", "bottom", "random"]
+        }
+      },
+      "required": ["type"]
+    },
+    "PlayerJoinedEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "player.joined"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "player": {
+          "$ref": "#/$defs/PlayerRef"
+        },
+        "players": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "description": "quantas pessoas ficaram na sala"
+        }
+      },
+      "required": ["type", "roomId", "at", "player", "players"],
+      "additionalProperties": false
+    },
+    "PlayerLeftEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "player.left"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "player": {
+          "$ref": "#/$defs/PlayerRef"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["left", "dropped", "kicked", "banned"]
+        },
+        "players": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "description": "quantas pessoas ficaram na sala"
+        }
+      },
+      "required": ["type", "roomId", "at", "player", "reason", "players"],
+      "additionalProperties": false
+    },
+    "PlayerRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "O id do jogador nesta sala, informado nos eventos e no estado ao vivo. O id muda se o jogador sair e voltar."
+        },
+        "nick": {
+          "type": "string"
+        },
+        "accountId": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["id", "nick", "accountId"],
+      "additionalProperties": false
+    },
+    "ReadyMessage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ready"
+        },
+        "room": {
+          "$ref": "#/$defs/HostedRoom"
+        },
+        "live": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveRoom"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["type", "room", "live"],
+      "additionalProperties": false
+    },
+    "RestartCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "restart"
+        }
+      },
+      "required": ["type"]
+    },
+    "ResultMessage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "result"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": ["type", "ok"],
+      "additionalProperties": false
+    },
+    "RoomCommand": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ChatCommand"
+        },
+        {
+          "$ref": "#/$defs/KickCommand"
+        },
+        {
+          "$ref": "#/$defs/BanCommand"
+        },
+        {
+          "$ref": "#/$defs/MuteCommand"
+        },
+        {
+          "$ref": "#/$defs/MoveCommand"
+        },
+        {
+          "$ref": "#/$defs/TeamCommand"
+        },
+        {
+          "$ref": "#/$defs/CaptainCommand"
+        },
+        {
+          "$ref": "#/$defs/AdminCommand"
+        },
+        {
+          "$ref": "#/$defs/StartCommand"
+        },
+        {
+          "$ref": "#/$defs/StopCommand"
+        },
+        {
+          "$ref": "#/$defs/FinishCommand"
+        },
+        {
+          "$ref": "#/$defs/PauseCommand"
+        },
+        {
+          "$ref": "#/$defs/RestartCommand"
+        },
+        {
+          "$ref": "#/$defs/AutoCommand"
+        },
+        {
+          "$ref": "#/$defs/ShuffleCommand"
+        },
+        {
+          "$ref": "#/$defs/PickCommand"
+        },
+        {
+          "$ref": "#/$defs/ConfirmCommand"
+        },
+        {
+          "$ref": "#/$defs/KnockoutCommand"
+        },
+        {
+          "$ref": "#/$defs/BotCommand"
+        },
+        {
+          "$ref": "#/$defs/BotsCommand"
+        },
+        {
+          "$ref": "#/$defs/LockCommand"
+        },
+        {
+          "$ref": "#/$defs/ConfigCommand"
+        }
+      ]
+    },
+    "RoomConfigEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "room.config"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "type": "string"
+        },
+        "config": {
+          "$ref": "#/$defs/HostedRoomConfig"
+        }
+      },
+      "required": ["type", "roomId", "at", "name", "config"],
+      "additionalProperties": false
+    },
+    "RoomEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RoomLiveEvent"
+        },
+        {
+          "$ref": "#/$defs/RoomOffEvent"
+        },
+        {
+          "$ref": "#/$defs/RoomConfigEvent"
+        },
+        {
+          "$ref": "#/$defs/PlayerJoinedEvent"
+        },
+        {
+          "$ref": "#/$defs/PlayerLeftEvent"
+        },
+        {
+          "$ref": "#/$defs/ChatMessageEvent"
+        },
+        {
+          "$ref": "#/$defs/MatchStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/MatchEventEvent"
+        },
+        {
+          "$ref": "#/$defs/MatchEndedEvent"
+        },
+        {
+          "$ref": "#/$defs/RuleFiredEvent"
+        },
+        {
+          "$ref": "#/$defs/ScriptLogEvent"
+        },
+        {
+          "$ref": "#/$defs/ScriptStoppedEvent"
+        }
+      ]
+    },
+    "RoomLiveEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "room.live"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "code": {
+          "type": "string"
+        },
+        "address": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["type", "roomId", "at", "code", "address"],
+      "additionalProperties": false
+    },
+    "RoomOffEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "room.off"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["released", "empty", "server_lost", "failed"]
+        }
+      },
+      "required": ["type", "roomId", "at", "reason"],
+      "additionalProperties": false
+    },
+    "RoomRules": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Rule"
+      }
+    },
+    "RoomScript": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["source", "enabled"],
+      "additionalProperties": false
+    },
+    "RoomTeams": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/TeamStyle"
+        },
+        "b": {
+          "$ref": "#/$defs/TeamStyle"
+        }
+      },
+      "required": ["a", "b"],
+      "additionalProperties": false,
+      "description": "O uniforme do time da casa (a) e o do time visitante (b)."
+    },
+    "Rule": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,32}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "cooldownSeconds": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 3600
+        },
+        "when": {
+          "$ref": "#/$defs/RuleTrigger"
+        },
+        "if": {
+          "default": [],
+          "maxItems": 5,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuleCondition"
+          }
+        },
+        "do": {
+          "minItems": 1,
+          "maxItems": 5,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuleAction"
+          }
+        }
+      },
+      "required": ["id", "name", "enabled", "when", "if", "do"],
+      "additionalProperties": false,
+      "description": "Quando (when) acontecer X, se (if) Y, faça (do) Z."
+    },
+    "RuleAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "chat"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": ["type", "text"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "reply"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": ["type", "text"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "spectate"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "mute"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "kick"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "start"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "stop"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "finish"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "pause"
+            },
+            "paused": {
+              "type": "boolean"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "config"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["football", "penalty", "volleyball", "ctf", "dodgeball", "tenman", "race"]
+            },
+            "map": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "time": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600
+            },
+            "goals": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 99
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bots"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["fill", "clear"]
+            }
+          },
+          "required": ["type", "action"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "team"
+            },
+            "team": {
+              "type": "string",
+              "enum": ["a", "b"]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 24
+            },
+            "kit": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]{1,24}$"
+            },
+            "colors": {
+              "type": "object",
+              "properties": {
+                "base": {
+                  "type": "string",
+                  "pattern": "^#[0-9a-fA-F]{6}$"
+                },
+                "second": {
+                  "type": "string",
+                  "pattern": "^#[0-9a-fA-F]{6}$"
+                }
+              },
+              "required": ["base", "second"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["type", "team"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RuleCondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "player.staff"
+            },
+            "is": {
+              "type": "boolean"
+            }
+          },
+          "required": ["type", "is"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "player.account"
+            },
+            "is": {
+              "type": "boolean"
+            }
+          },
+          "required": ["type", "is"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "player.place"
+            },
+            "place": {
+              "type": "string",
+              "enum": ["field", "a", "b", "stands"]
+            }
+          },
+          "required": ["type", "place"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "people"
+            },
+            "min": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "phase"
+            },
+            "in": {
+              "minItems": 1,
+              "maxItems": 3,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["stopped", "playing", "paused"]
+              }
+            }
+          },
+          "required": ["type", "in"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "score"
+            },
+            "of": {
+              "type": "string",
+              "enum": ["a", "b", "total", "diff"]
+            },
+            "min": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999
+            }
+          },
+          "required": ["type", "of"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "mode"
+            },
+            "in": {
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["football", "penalty", "volleyball", "ctf", "dodgeball", "tenman", "race"]
+              }
+            }
+          },
+          "required": ["type", "in"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "map"
+            },
+            "in": {
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 70
+              }
+            }
+          },
+          "required": ["type", "in"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RuleFiredEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "rule.fired"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "rule": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["id", "name"],
+          "additionalProperties": false
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "player": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlayerRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["type", "ok"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["type", "roomId", "at", "rule", "trigger", "player", "depth", "actions"],
+      "additionalProperties": false
+    },
+    "RuleTrigger": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "room.live"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "player.joined"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "player.left"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "chat.command"
+            },
+            "command": {
+              "type": "string",
+              "pattern": "^![a-z0-9_-]{1,24}$",
+              "example": "!regras"
+            },
+            "hide": {
+              "type": "boolean"
+            }
+          },
+          "required": ["type", "command"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "match.started"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "match.ended"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "match.event"
+            },
+            "event": {
+              "type": "string",
+              "enum": [
+                "Goal",
+                "Save",
+                "Post",
+                "PenaltyKick",
+                "Out",
+                "Point",
+                "Eliminated",
+                "Revived",
+                "Frozen",
+                "Unfrozen",
+                "FlagTaken",
+                "FlagCaptured",
+                "FlagDropped",
+                "Block",
+                "Fault",
+                "Foul",
+                "Card",
+                "LapCompleted",
+                "Finished",
+                "RoundStart",
+                "RoundEnd"
+              ]
+            },
+            "team": {
+              "type": "string",
+              "enum": ["a", "b"]
+            }
+          },
+          "required": ["type", "event"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "score.reached"
+            },
+            "goals": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 99
+            },
+            "team": {
+              "type": "string",
+              "enum": ["a", "b"]
+            }
+          },
+          "required": ["type", "goals"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "time.passed"
+            },
+            "seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            }
+          },
+          "required": ["type", "seconds"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "every"
+            },
+            "minutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            }
+          },
+          "required": ["type", "minutes"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ScriptLogEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "script.log"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "required": ["type", "roomId", "at", "text"],
+      "additionalProperties": false
+    },
+    "ScriptStoppedEvent": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "script.stopped"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["compile", "runtime", "time", "memory", "budget", "actions", "private", "ranked"]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 400
+        }
+      },
+      "required": ["type", "roomId", "at", "reason", "message"],
+      "additionalProperties": false
+    },
+    "ServerMessage": {
+      "description": "O que a API manda: ready (auth aceita), result (de cada comando), error e os eventos da sala.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReadyMessage"
+        },
+        {
+          "$ref": "#/$defs/ResultMessage"
+        },
+        {
+          "$ref": "#/$defs/ErrorMessage"
+        },
+        {
+          "$ref": "#/$defs/RoomEvent"
+        }
+      ]
+    },
+    "ShuffleCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "shuffle"
+        }
+      },
+      "required": ["type"]
+    },
+    "StartCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "start"
+        }
+      },
+      "required": ["type"]
+    },
+    "StopCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "stop"
+        }
+      },
+      "required": ["type"]
+    },
+    "TeamCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "team"
+        },
+        "team": {
+          "type": "string",
+          "enum": ["a", "b"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "kit": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{1,24}$"
+        },
+        "colors": {
+          "type": "object",
+          "properties": {
+            "base": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "second": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "required": ["base", "second"]
+        }
+      },
+      "required": ["type", "team"]
+    },
+    "TeamStyle": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "kit": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]{1,24}$"
+        },
+        "colors": {
+          "type": "object",
+          "properties": {
+            "base": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "second": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "required": ["base", "second"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["name", "kit"],
+      "additionalProperties": false
+    }
+  }
+}

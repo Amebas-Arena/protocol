@@ -1,0 +1,20 @@
+name: validar
+on: [push, pull_request]
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # o schema e os casos de teste são JSON válido, e o schema compila
+      - run: |
+          npm install --no-save ajv@8
+          node -e "
+            const Ajv = require('ajv/dist/2020');
+            const ajv = new Ajv({ strict: false, validateFormats: false });
+            ajv.compile(require('./bot-protocol.schema.json'));
+            const f = require('./commands.conformance.json');
+            if (!f.cases.length) throw new Error('sem casos');
+            console.log('schema ok;', f.cases.length, 'casos');
+          "

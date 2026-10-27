@@ -1,0 +1,489 @@
+{
+  "description": "Casos que toda implementação do sistema de comandos tem que passar (script do painel, @amebas/sdk, amebas no PyPI e o sdk-go). Cada passo manda uma mensagem de chat e diz o que tem que sair: run (o handler roda com esses args), replies (respostas, em ordem) ou ignore (não é comando). at é o relógio em ms; result false no passo = o handler devolveu false (não conta o cooldown).",
+  "players": {
+    "ana": { "id": 1, "nick": "Ana", "accountId": "acc-ana", "role": "player" },
+    "andre": { "id": 2, "nick": "Andre", "accountId": null, "role": "player" },
+    "bia": { "id": 3, "nick": "Bia", "accountId": "acc-bia", "role": "staff" },
+    "dono": { "id": 4, "nick": "Dono", "accountId": "acc-dono", "role": "owner" },
+    "ana2": { "id": 9, "nick": "Ana", "accountId": "acc-ana", "role": "player" }
+  },
+  "cases": [
+    {
+      "name": "comando sem define: roda com args vazio; sem prefixo ou desconhecido é ignorado",
+      "commands": [{ "name": "regras" }],
+      "steps": [
+        { "as": "ana", "text": "!regras", "expect": { "run": "regras", "args": {} } },
+        { "as": "ana", "text": "  !REGRAS  agora ", "expect": { "run": "regras", "args": {} } },
+        { "as": "ana", "text": "regras", "expect": { "ignore": true } },
+        { "as": "ana", "text": "!outro", "expect": { "ignore": true } },
+        { "as": "ana", "text": "! regras", "expect": { "ignore": true } }
+      ]
+    },
+    {
+      "name": "aliases e o nome digitado",
+      "commands": [{ "name": "gols", "define": { "aliases": ["g", "artilharia"] } }],
+      "steps": [
+        { "as": "ana", "text": "!g", "expect": { "run": "gols", "args": {} } },
+        { "as": "ana", "text": "!Artilharia", "expect": { "run": "gols", "args": {} } }
+      ]
+    },
+    {
+      "name": "int com faixa: o exemplo do Junplid",
+      "commands": [
+        { "name": "gols", "define": { "args": { "n": "int:1..20" }, "cooldown": 10, "permission": "staff" } }
+      ],
+      "steps": [
+        { "as": "ana", "text": "!gols 5", "expect": { "replies": ["Só a staff pode usar !gols."] } },
+        { "as": "bia", "text": "!gols", "expect": { "replies": ["Faltou n. Uso: !gols <n>"] } },
+        {
+          "as": "bia",
+          "text": "!gols 50",
+          "expect": { "replies": ["Valor inválido pra n: um número inteiro de 1 a 20. Uso: !gols <n>"] }
+        },
+        {
+          "as": "bia",
+          "text": "!gols abc",
+          "expect": { "replies": ["Valor inválido pra n: um número inteiro de 1 a 20. Uso: !gols <n>"] }
+        },
+        {
+          "as": "bia",
+          "text": "!gols 2.5",
+          "expect": { "replies": ["Valor inválido pra n: um número inteiro de 1 a 20. Uso: !gols <n>"] }
+        },
+        { "as": "bia", "text": "!gols 7 sobra", "expect": { "run": "gols", "args": { "n": 7 } } },
+        { "as": "bia", "at": 1000, "text": "!gols 8", "expect": { "run": "gols", "args": { "n": 8 } } },
+        { "as": "dono", "text": "!gols +3", "expect": { "run": "gols", "args": { "n": 3 } } }
+      ]
+    },
+    {
+      "name": "cooldown por jogador: segue a conta (sair e voltar não zera), visitante vai pelo nick, staff isenta",
+      "commands": [{ "name": "dado", "define": { "cooldown": 10 } }],
+      "steps": [
+        { "as": "ana", "at": 0, "text": "!dado", "expect": { "run": "dado", "args": {} } },
+        {
+          "as": "ana",
+          "at": 1000,
+          "text": "!dado",
+          "expect": { "replies": ["Espere 9s pra usar !dado de novo."] }
+        },
+        {
+          "as": "ana2",
+          "at": 1500,
+          "text": "!dado",
+          "expect": { "replies": ["Espere 9s pra usar !dado de novo."] }
+        },
+        { "as": "andre", "at": 2000, "text": "!dado", "expect": { "run": "dado", "args": {} } },
+        { "as": "bia", "at": 2000, "text": "!dado", "expect": { "run": "dado", "args": {} } },
+        { "as": "bia", "at": 2001, "text": "!dado", "expect": { "run": "dado", "args": {} } },
+        {
+          "as": "ana",
+          "at": 9999,
+          "text": "!dado",
+          "expect": { "replies": ["Espere 1s pra usar !dado de novo."] }
+        },
+        { "as": "ana", "at": 10000, "text": "!dado", "expect": { "run": "dado", "args": {} } }
+      ]
+    },
+    {
+      "name": "handler que devolve false não gasta o cooldown",
+      "commands": [{ "name": "afk", "define": { "cooldown": 30 } }],
+      "steps": [
+        { "as": "ana", "at": 0, "text": "!afk", "result": false, "expect": { "run": "afk", "args": {} } },
+        { "as": "ana", "at": 100, "text": "!afk", "expect": { "run": "afk", "args": {} } },
+        {
+          "as": "ana",
+          "at": 200,
+          "text": "!afk",
+          "expect": { "replies": ["Espere 30s pra usar !afk de novo."] }
+        }
+      ]
+    },
+    {
+      "name": "cooldown da sala, minutos, staff sem isenção e mensagem própria",
+      "commands": [
+        {
+          "name": "sorteio",
+          "define": {
+            "cooldown": { "player": 90, "room": 5, "exemptStaff": false },
+            "messages": { "cooldown": "Calma, {nick}! {command} volta em {left}." }
+          }
+        }
+      ],
+      "steps": [
+        { "as": "ana", "at": 0, "text": "!sorteio", "expect": { "run": "sorteio", "args": {} } },
+        {
+          "as": "andre",
+          "at": 1000,
+          "text": "!sorteio",
+          "expect": { "replies": ["Calma, Andre! !sorteio volta em 4s."] }
+        },
+        {
+          "as": "bia",
+          "at": 2000,
+          "text": "!sorteio",
+          "expect": { "replies": ["Calma, Bia! !sorteio volta em 3s."] }
+        },
+        { "as": "andre", "at": 5000, "text": "!sorteio", "expect": { "run": "sorteio", "args": {} } },
+        {
+          "as": "ana",
+          "at": 25000,
+          "text": "!sorteio",
+          "expect": { "replies": ["Calma, Ana! !sorteio volta em 1min 5s."] }
+        },
+        {
+          "as": "ana",
+          "at": 30000,
+          "text": "!sorteio",
+          "expect": { "replies": ["Calma, Ana! !sorteio volta em 1min."] }
+        }
+      ]
+    },
+    {
+      "name": "permissão de dono",
+      "commands": [{ "name": "senha", "define": { "permission": "owner", "args": { "nova": "text" } } }],
+      "steps": [
+        {
+          "as": "bia",
+          "text": "!senha abc",
+          "expect": { "replies": ["Só o dono da sala pode usar !senha."] }
+        },
+        { "as": "dono", "text": "!senha abc", "expect": { "run": "senha", "args": { "nova": "abc" } } }
+      ]
+    },
+    {
+      "name": "todos os tipos de argumento",
+      "commands": [
+        {
+          "name": "teste",
+          "define": {
+            "args": {
+              "time": "team",
+              "cor": "azul|vermelho|verde",
+              "liga": "bool",
+              "peso": "number:0..2",
+              "apelido": "text:2..5",
+              "resto": "rest"
+            }
+          }
+        }
+      ],
+      "steps": [
+        {
+          "as": "ana",
+          "text": "!teste B Azul sim 1,5 ze  uma frase   inteira ",
+          "expect": {
+            "run": "teste",
+            "args": {
+              "time": "b",
+              "cor": "azul",
+              "liga": true,
+              "peso": 1.5,
+              "apelido": "ze",
+              "resto": "uma frase   inteira"
+            }
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste a verde NÃO 0.25 abcde x",
+          "expect": {
+            "run": "teste",
+            "args": {
+              "time": "a",
+              "cor": "verde",
+              "liga": false,
+              "peso": 0.25,
+              "apelido": "abcde",
+              "resto": "x"
+            }
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste c azul sim 1 ze x",
+          "expect": {
+            "replies": [
+              "Valor inválido pra time: a ou b. Uso: !teste <time> <cor> <liga> <peso> <apelido> <resto...>"
+            ]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste a roxo sim 1 ze x",
+          "expect": {
+            "replies": [
+              "Valor inválido pra cor: uma destas opções: azul, vermelho, verde. Uso: !teste <time> <cor> <liga> <peso> <apelido> <resto...>"
+            ]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste a azul talvez 1 ze x",
+          "expect": {
+            "replies": [
+              "Valor inválido pra liga: sim ou não. Uso: !teste <time> <cor> <liga> <peso> <apelido> <resto...>"
+            ]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste a azul s 2,5 ze x",
+          "expect": {
+            "replies": [
+              "Valor inválido pra peso: um número de 0 a 2. Uso: !teste <time> <cor> <liga> <peso> <apelido> <resto...>"
+            ]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste a azul s 1 abcdef x",
+          "expect": {
+            "replies": [
+              "Valor inválido pra apelido: um texto de 2 a 5 letras. Uso: !teste <time> <cor> <liga> <peso> <apelido> <resto...>"
+            ]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!teste a azul s 1 ab",
+          "expect": {
+            "replies": ["Faltou resto. Uso: !teste <time> <cor> <liga> <peso> <apelido> <resto...>"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "opcional, padrão e faixas abertas",
+      "commands": [
+        {
+          "name": "top",
+          "define": { "args": { "n": "int:1..=5", "modo": "gols|assist?" } }
+        },
+        { "name": "dar", "define": { "args": { "quanto": "number:0..", "nota": "int:..10?" } } }
+      ],
+      "steps": [
+        { "as": "ana", "text": "!top", "expect": { "run": "top", "args": { "n": 5, "modo": null } } },
+        {
+          "as": "ana",
+          "text": "!top 99 assist",
+          "expect": { "run": "top", "args": { "n": 99, "modo": "assist" } }
+        },
+        {
+          "as": "ana",
+          "text": "!top 0",
+          "expect": {
+            "replies": ["Valor inválido pra n: um número inteiro a partir de 1. Uso: !top [n] [modo]"]
+          }
+        },
+        { "as": "ana", "text": "!dar 3", "expect": { "run": "dar", "args": { "quanto": 3, "nota": null } } },
+        {
+          "as": "ana",
+          "text": "!dar -1",
+          "expect": {
+            "replies": ["Valor inválido pra quanto: um número a partir de 0. Uso: !dar <quanto> [nota]"]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!dar 1 11",
+          "expect": {
+            "replies": ["Valor inválido pra nota: um número inteiro até 10. Uso: !dar <quanto> [nota]"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "argumento no formato de objeto",
+      "commands": [
+        {
+          "name": "multa",
+          "define": {
+            "args": {
+              "valor": { "type": "int", "min": 1, "max": 100, "default": 10 },
+              "motivo": { "type": "rest", "optional": true }
+            }
+          }
+        }
+      ],
+      "steps": [
+        {
+          "as": "ana",
+          "text": "!multa",
+          "expect": { "run": "multa", "args": { "valor": 10, "motivo": null } }
+        },
+        {
+          "as": "ana",
+          "text": "!multa 20 chegou atrasado",
+          "expect": { "run": "multa", "args": { "valor": 20, "motivo": "chegou atrasado" } }
+        }
+      ]
+    },
+    {
+      "name": "jogador por nick, começo do nick, @ e #id",
+      "players": ["ana", "andre", "bia"],
+      "commands": [{ "name": "kick", "define": { "args": { "alvo": "player", "motivo": "rest?" } } }],
+      "steps": [
+        {
+          "as": "bia",
+          "text": "!kick bia",
+          "expect": {
+            "run": "kick",
+            "args": { "alvo": { "id": 3, "nick": "Bia", "accountId": "acc-bia" }, "motivo": null }
+          }
+        },
+        {
+          "as": "bia",
+          "text": "!kick @andr spam",
+          "expect": {
+            "run": "kick",
+            "args": { "alvo": { "id": 2, "nick": "Andre", "accountId": null }, "motivo": "spam" }
+          }
+        },
+        {
+          "as": "bia",
+          "text": "!kick #1",
+          "expect": {
+            "run": "kick",
+            "args": { "alvo": { "id": 1, "nick": "Ana", "accountId": "acc-ana" }, "motivo": null }
+          }
+        },
+        {
+          "as": "bia",
+          "text": "!kick ANA",
+          "expect": {
+            "run": "kick",
+            "args": { "alvo": { "id": 1, "nick": "Ana", "accountId": "acc-ana" }, "motivo": null }
+          }
+        },
+        {
+          "as": "bia",
+          "text": "!kick an",
+          "expect": {
+            "replies": ["Mais de um jogador combina com \"an\": Ana, Andre. Uso: !kick <alvo> [motivo...]"]
+          }
+        },
+        {
+          "as": "bia",
+          "text": "!kick zé",
+          "expect": { "replies": ["Ninguém na sala com o nick \"zé\". Uso: !kick <alvo> [motivo...]"] }
+        },
+        {
+          "as": "bia",
+          "text": "!kick #77",
+          "expect": { "replies": ["Ninguém na sala com o id #77. Uso: !kick <alvo> [motivo...]"] }
+        }
+      ]
+    },
+    {
+      "name": "padrões globais (defaults) e a define que sobrescreve",
+      "defaults": { "cooldown": 3, "permission": "staff", "prefix": "." },
+      "commands": [
+        { "name": "pausa" },
+        { "name": "oi", "define": { "permission": "all", "cooldown": { "player": 0 } } }
+      ],
+      "steps": [
+        { "as": "ana", "at": 0, "text": ".pausa", "expect": { "replies": ["Só a staff pode usar .pausa."] } },
+        { "as": "ana", "at": 0, "text": "!pausa", "expect": { "ignore": true } },
+        { "as": "ana", "at": 0, "text": ".oi", "expect": { "run": "oi", "args": {} } },
+        { "as": "ana", "at": 1, "text": ".oi", "expect": { "run": "oi", "args": {} } },
+        { "as": "bia", "at": 0, "text": ".pausa", "expect": { "run": "pausa", "args": {} } }
+      ]
+    },
+    {
+      "name": "defaults de mensagens",
+      "defaults": { "messages": { "permission": "[!] {command} é só pra {who}." } },
+      "commands": [{ "name": "fim", "define": { "permission": "staff" } }],
+      "steps": [{ "as": "ana", "text": "!fim", "expect": { "replies": ["[!] !fim é só pra a staff."] } }]
+    },
+    {
+      "name": "!ajuda gerado: lista o que a pessoa pode usar, e o detalhe de um comando",
+      "commands": [
+        {
+          "name": "gols",
+          "define": {
+            "aliases": ["g"],
+            "description": "Os artilheiros da sala.",
+            "args": { "n": "int:1..20?" },
+            "cooldown": 10
+          }
+        },
+        { "name": "regras", "define": { "description": "As regras da sala." } },
+        { "name": "segredo", "define": { "hidden": true } },
+        { "name": "banir", "define": { "permission": "staff", "args": { "alvo": "player" } } }
+      ],
+      "steps": [
+        {
+          "as": "ana",
+          "text": "!ajuda",
+          "expect": { "replies": ["Comandos: !gols, !regras. Pra ver como usar um: !ajuda <comando>"] }
+        },
+        {
+          "as": "bia",
+          "text": "!help",
+          "expect": {
+            "replies": ["Comandos: !gols, !regras, !banir. Pra ver como usar um: !ajuda <comando>"]
+          }
+        },
+        {
+          "as": "ana",
+          "text": "!ajuda g",
+          "expect": { "replies": ["!gols [n]: Os artilheiros da sala. Atalhos: !g. Espera: 10s."] }
+        },
+        { "as": "ana", "text": "!comandos regras", "expect": { "replies": ["!regras: As regras da sala."] } },
+        {
+          "as": "ana",
+          "text": "!ajuda banir",
+          "expect": { "replies": ["Não tem o comando !banir. Use !ajuda pra ver a lista."] }
+        },
+        { "as": "bia", "text": "!ajuda !banir", "expect": { "replies": ["!banir <alvo>"] } }
+      ]
+    },
+    {
+      "name": "!ajuda desligado nos defaults, e o comando do dono com o mesmo nome ganha do embutido",
+      "defaults": { "help": false },
+      "commands": [{ "name": "regras" }],
+      "steps": [{ "as": "ana", "text": "!ajuda", "expect": { "ignore": true } }]
+    },
+    {
+      "name": "comando próprio chamado ajuda",
+      "commands": [{ "name": "ajuda" }],
+      "steps": [
+        { "as": "ana", "text": "!ajuda", "expect": { "run": "ajuda", "args": {} } },
+        {
+          "as": "ana",
+          "text": "!help",
+          "expect": { "replies": ["Comandos: !ajuda. Pra ver como usar um: !ajuda <comando>"] }
+        }
+      ]
+    },
+    {
+      "name": "lista longa quebra em mensagens de até 200 caracteres",
+      "commands": [
+        { "name": "comando-numero-01" },
+        { "name": "comando-numero-02" },
+        { "name": "comando-numero-03" },
+        { "name": "comando-numero-04" },
+        { "name": "comando-numero-05" },
+        { "name": "comando-numero-06" },
+        { "name": "comando-numero-07" },
+        { "name": "comando-numero-08" },
+        { "name": "comando-numero-09" },
+        { "name": "comando-numero-10" },
+        { "name": "comando-numero-11" },
+        { "name": "comando-numero-12" }
+      ],
+      "steps": [
+        {
+          "as": "ana",
+          "text": "!ajuda",
+          "expect": {
+            "replies": [
+              "Comandos: !comando-numero-01, !comando-numero-02, !comando-numero-03, !comando-numero-04, !comando-numero-05, !comando-numero-06, !comando-numero-07, !comando-numero-08, !comando-numero-09,",
+              "!comando-numero-10, !comando-numero-11, !comando-numero-12. Pra ver como usar um: !ajuda <comando>"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
